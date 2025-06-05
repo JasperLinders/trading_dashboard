@@ -2,10 +2,9 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import numpy as np
 
 from src.data_loader import load_trade_data
-from src.metrics import compute_basic_stats, compute_advanced_stats
+from src.metrics import *
 
 # --- Page Setup ---
 st.set_page_config(page_title="Trading Dashboard", layout="wide")
@@ -16,10 +15,10 @@ df = load_trade_data('trades_synthetic.csv')
 # --- Compute Stats ---
 basic_stats = compute_basic_stats(df)
 advanced_stats = compute_advanced_stats(df)
+daily_stats = compute_daily_stats(df)
 
 # --- Page Title ---
 st.title("📈 Trading Performance Dashboard")
-
 
 # --- Key Stats: Single Row ---
 st.subheader("Key Statistics")
@@ -36,10 +35,9 @@ st.subheader("Performance Overview")
 left, right = st.columns([3, 1])
 
 # Left: Cumulative PnL Plot
-cumulative_pnl = df["profit_loss"].cumsum()
 fig = px.line(
     x=df.index,
-    y=cumulative_pnl,
+    y=advanced_stats["cumulative_pnl"],
     labels={"x": "Trade Index", "y": "PnL ($)"},
     title="Cumulative PnL"
 )
@@ -104,62 +102,10 @@ with right:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# --- Trader Profile ---
-def plot_trader_profile(win_rate, avg_win_loss_ratio):
-    x = np.linspace(0.01, 0.99, 300)
-    y = (1 - x) / x
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=x, y=y,
-        mode='lines',
-        name='Breakeven',
-        line=dict(color='gray', dash='dash')
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=[win_rate],
-        y=[avg_win_loss_ratio],
-        mode='markers+text',
-        name='You',
-        marker=dict(color='deepskyblue', size=14, line=dict(color='white', width=2)),
-        text=['You'],
-        textposition='top center'
-    ))
-
-    fig.update_layout(
-        xaxis_title='Win Rate',
-        yaxis_title='Avg Win / Avg Loss',
-        xaxis=dict(range=[0.2, 0.8]),
-        yaxis=dict(range=[0, 4]),
-        template='plotly_dark',
-        height=400,
-        width=600,
-        margin=dict(l=40, r=40, t=40, b=40)
-    )
-    return fig
-
-st.markdown("---")
-st.subheader("Trader Profile")
-fig = plot_trader_profile(basic_stats['win_rate'], basic_stats['avg_win_loss_ratio'])
-st.plotly_chart(fig, use_container_width=True)
-
-
 # --- Daily PnL Section ---
 st.markdown("---")
 st.subheader("📅 Daily PnL Overview")
 
-# Group by date
-daily_pnl = df.groupby("date")["profit_loss"].sum()
-
-# Daily stats
-avg_day_pnl = daily_pnl.mean()
-avg_win_day = daily_pnl[daily_pnl > 0].mean()
-avg_loss_day = daily_pnl[daily_pnl < 0].mean()
-days_traded = df["date"].nunique()
-trades_per_day = df.groupby("date").size()
-avg_trades_per_day = trades_per_day.mean() if not trades_per_day.empty else 0
 
 # Layout: Left = Bar Plot, Right = Stats
 left, right = st.columns([3, 1])
@@ -176,9 +122,9 @@ with left:
     # Daily PnL bars
     fig.add_trace(
         go.Bar(
-            x=daily_pnl.index,
-            y=daily_pnl.values,
-            marker_color=['green' if v >= 0 else 'red' for v in daily_pnl.values],
+            x=daily_stats['daily_pnl'].index,
+            y=daily_stats['daily_pnl'].values,
+            marker_color=['green' if v >= 0 else 'red' for v in daily_stats['daily_pnl'].values],
             name='Daily PnL',
         ),
         row=1, col=1
@@ -187,8 +133,8 @@ with left:
     # Number of trades bars
     fig.add_trace(
         go.Bar(
-            x=trades_per_day.index,
-            y=trades_per_day.values,
+            x=daily_stats['trades_per_day'].index,
+            y=daily_stats['trades_per_day'].values,
             marker_color='gray',
             name='Trades per Day',
         ),
@@ -215,25 +161,86 @@ with right:
     st.markdown("<div style='margin-top: 50px;'>", unsafe_allow_html=True)
     st.markdown("<div style='margin-bottom:1rem'></div>", unsafe_allow_html=True)  # Spacer
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{days_traded}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{daily_stats['days_traded']}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Days Traded</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)  # Spacer
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{avg_trades_per_day:.1f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{daily_stats['avg_trades_per_day']:.1f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Trades Per Day</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)  # Spacer
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${avg_day_pnl:.2f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${daily_stats['avg_day_pnl']:.2f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Day PnL</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${avg_win_day:.2f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${daily_stats['avg_win_day']:.2f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Winning Day</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${avg_loss_day:.2f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${daily_stats['avg_loss_day']:.2f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Losing Day</div>", unsafe_allow_html=True)
+
+
+# ---  ---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # --- Trader Profile ---
+# def plot_trader_profile(win_rate, avg_win_loss_ratio):
+#     x = np.linspace(0.01, 0.99, 300)
+#     y = (1 - x) / x
+
+#     fig = go.Figure()
+
+#     fig.add_trace(go.Scatter(
+#         x=x, y=y,
+#         mode='lines',
+#         name='Breakeven',
+#         line=dict(color='gray', dash='dash')
+#     ))
+
+#     fig.add_trace(go.Scatter(
+#         x=[win_rate],
+#         y=[avg_win_loss_ratio],
+#         mode='markers+text',
+#         name='You',
+#         marker=dict(color='deepskyblue', size=14, line=dict(color='white', width=2)),
+#         text=['You'],
+#         textposition='top center'
+#     ))
+
+#     fig.update_layout(
+#         xaxis_title='Win Rate',
+#         yaxis_title='Avg Win / Avg Loss',
+#         xaxis=dict(range=[0.2, 0.8]),
+#         yaxis=dict(range=[0, 4]),
+#         template='plotly_dark',
+#         height=400,
+#         width=600,
+#         margin=dict(l=40, r=40, t=40, b=40)
+#     )
+#     return fig
+
+# st.markdown("---")
+# st.subheader("Trader Profile")
+# fig = plot_trader_profile(basic_stats['win_rate'], basic_stats['avg_win_loss_ratio'])
+# st.plotly_chart(fig, use_container_width=True)

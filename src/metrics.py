@@ -32,11 +32,6 @@ def compute_advanced_stats(trade_data: pd.DataFrame) -> dict:
     """
     total_profit_loss = trade_data['profit_loss'].sum()
 
-    day_profit_loss = trade_data.groupby('date')['profit_loss'].sum()
-    avg_day_profit_loss = day_profit_loss.mean()
-    avg_winning_day_profit_loss = day_profit_loss[day_profit_loss > 0].mean()
-    avg_losing_day_profit_loss = day_profit_loss[day_profit_loss < 0].mean()
-
     max_win = trade_data['profit_loss'].max()
     max_loss = trade_data['profit_loss'].min()
 
@@ -49,9 +44,7 @@ def compute_advanced_stats(trade_data: pd.DataFrame) -> dict:
     avg_duration_loss = trade_data[trade_data['profit_loss'] < 0]['duration_sec'].mean()
 
     return {
-        'avg_day_profit_loss': avg_day_profit_loss,
-        'avg_winning_day_profit_loss': avg_winning_day_profit_loss,
-        'avg_losing_day_profit_loss': avg_losing_day_profit_loss,
+        'cumulative_pnl': cumulative_pnl,
         'max_win': max_win,
         'max_loss': max_loss,
         'max_drawdown': max_drawdown,
@@ -59,4 +52,28 @@ def compute_advanced_stats(trade_data: pd.DataFrame) -> dict:
         'avg_duration': avg_duration,
         'avg_duration_win': avg_duration_win,
         'avg_duration_loss': avg_duration_loss
+    }
+
+def compute_daily_stats(trade_data: pd.DataFrame) -> pd.DataFrame:
+    """Compute daily statistics from trade data.
+    """
+    # Group by date
+    daily_pnl = trade_data.groupby("date")["profit_loss"].sum()
+
+    # Daily stats
+    avg_day_pnl = daily_pnl.mean()
+    avg_win_day = daily_pnl[daily_pnl > 0].mean()
+    avg_loss_day = daily_pnl[daily_pnl < 0].mean()
+    days_traded = trade_data["date"].nunique()
+    trades_per_day = trade_data.groupby("date").size()
+    avg_trades_per_day = trades_per_day.mean() if not trades_per_day.empty else 0
+
+    return {
+        'daily_pnl': daily_pnl,
+        'avg_day_pnl': avg_day_pnl,
+        'avg_win_day': avg_win_day,
+        'avg_loss_day': avg_loss_day,
+        'days_traded': days_traded,
+        'trades_per_day': trades_per_day,
+        'avg_trades_per_day': avg_trades_per_day
     }
