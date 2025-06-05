@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import numpy as np
 
 from src.data_loader import load_trade_data
 from src.metrics import *
@@ -13,9 +14,11 @@ st.set_page_config(page_title="Trading Dashboard", layout="wide")
 df = load_trade_data('trades_synthetic.csv')
 
 # --- Compute Stats ---
+df = add_mfe_mae_columns(df)
 basic_stats = compute_basic_stats(df)
 advanced_stats = compute_advanced_stats(df)
 daily_stats = compute_daily_stats(df)
+df = compute_rolling_stats(df)
 
 # --- Page Title ---
 st.title("📈 Trading Performance Dashboard")
@@ -185,7 +188,125 @@ with right:
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Losing Day</div>", unsafe_allow_html=True)
 
 
-# ---  ---
+# --- Rolling vs Expanding Metrics ---
+st.markdown("---")
+st.subheader("Rolling vs Expanding Metrics", help="Rolling metrics are calculated over a fixed window (30 trades), while expanding metrics evolve with the whole sample.")
+
+# Layout: Left = Multi-line Plot, Right = Stat Deltas
+left, right = st.columns([3, 1])
+
+df = df.copy().iloc[50:]  # Skip early unstable rows
+metrics = ['win_rate', 'avg_win_loss_ratio', 'avg_mfe', 'avg_mae']
+
+with left:
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=["Win Rate", "Avg Win/Loss Ratio", "MFE ($)", "MAE ($)"]
+    )
+
+    for i, metric in enumerate(metrics, start=1):
+        roll_series = df[f'rolling_{metric}']
+        std_series = roll_series.rolling(window=10).std()  # or another window size
+
+        upper_band = roll_series + std_series
+        lower_band = roll_series - std_series
+
+        # Expanding line
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df[f'expanding_{metric}'],
+                mode='lines',
+                name='Expanding' if i == 1 else None,
+                line=dict(color='gray')
+            ),
+            row=i, col=1
+        )
+
+        # Upper std band (invisible line for fill)
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=upper_band,
+                mode='lines',
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=i, col=1
+        )
+
+        # Lower std band with fill
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=lower_band,
+                mode='lines',
+                fill='tonexty',
+                fillcolor='rgba(255, 165, 0, 0.2)',  # semi-transparent orange
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=i, col=1
+        )
+
+        # Rolling line
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=roll_series,
+                mode='lines',
+                name='Rolling' if i == 1 else None,
+                line=dict(color='orange')
+            ),
+            row=i, col=1
+        )
+
+        # Format Win Rate as percentage
+        if metric == 'win_rate':
+            fig.update_yaxes(tickformat=".0%", row=i, col=1)
+
+    fig.update_layout(
+        height=900,
+        template='plotly_dark',
+        showlegend=False,  # legend removed entirely
+        margin=dict(t=60, b=40, l=40, r=40),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- Right side % changes ---
+with right:
+    spacing_per_metric = ["4rem", "9rem", "9rem", "9rem"]
+    titles = ['Win Rate', 'Avg Win/Loss Ratio', 'MFE', 'MAE']
+
+    for idx, (metric, title) in enumerate(zip(metrics, titles)):
+        exp_val = df[f'expanding_{metric}'].iloc[-1]
+        roll_val = df[f'rolling_{metric}'].iloc[-1]
+
+        if abs(exp_val) > 1e-6:
+            pct_change = (roll_val - exp_val) / abs(exp_val)
+        else:
+            pct_change = 0.0
+
+        # Logic for color
+        if metric == 'avg_mae':  # Higher MAE is worse
+            color = 'lime' if pct_change < 0 else 'tomato'
+        else:
+            color = 'lime' if pct_change >= 0 else 'tomato'
+
+        display_val = f"{pct_change:.2%}"
+
+        st.markdown(f"<div style='margin-top:{spacing_per_metric[idx]};'></div>", unsafe_allow_html=True)
+
+        st.markdown(f"""
+            <div style='text-align:center; font-size:30px; font-weight:bold; color:{color};'>{display_val}</div>
+            <div style='text-align:center; font-size:20px; color:#aaa;'>{title} % Change</div>
+        """, unsafe_allow_html=True)
+
 
 
 
