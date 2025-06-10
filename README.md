@@ -60,5 +60,5 @@ pip install -r requirements.txt
 3. Launch the app:
 
 ```
-streamlit run app.py
+streamlit run streamlit_dashboard.py
 ```
