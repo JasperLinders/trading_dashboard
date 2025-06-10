@@ -5,7 +5,7 @@ from plotly.subplots import make_subplots
 import numpy as np
 
 from src.data_loader import load_trade_data
-from src.metrics import compute_basic_stats, compute_advanced_stats
+from src.metrics import *
 
 # --- Page Setup ---
 st.set_page_config(page_title="Trading Dashboard", layout="wide")
@@ -14,12 +14,14 @@ st.set_page_config(page_title="Trading Dashboard", layout="wide")
 df = load_trade_data('trades_synthetic.csv')
 
 # --- Compute Stats ---
+df = add_mfe_mae_columns(df)
 basic_stats = compute_basic_stats(df)
 advanced_stats = compute_advanced_stats(df)
+daily_stats = compute_daily_stats(df)
+df = compute_rolling_stats(df)
 
 # --- Page Title ---
 st.title("📈 Trading Performance Dashboard")
-
 
 # --- Key Stats: Single Row ---
 st.subheader("Key Statistics")
@@ -36,10 +38,9 @@ st.subheader("Performance Overview")
 left, right = st.columns([3, 1])
 
 # Left: Cumulative PnL Plot
-cumulative_pnl = df["profit_loss"].cumsum()
 fig = px.line(
     x=df.index,
-    y=cumulative_pnl,
+    y=advanced_stats["cumulative_pnl"],
     labels={"x": "Trade Index", "y": "PnL ($)"},
     title="Cumulative PnL"
 )
@@ -104,62 +105,10 @@ with right:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# --- Trader Profile ---
-def plot_trader_profile(win_rate, avg_win_loss_ratio):
-    x = np.linspace(0.01, 0.99, 300)
-    y = (1 - x) / x
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=x, y=y,
-        mode='lines',
-        name='Breakeven',
-        line=dict(color='gray', dash='dash')
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=[win_rate],
-        y=[avg_win_loss_ratio],
-        mode='markers+text',
-        name='You',
-        marker=dict(color='deepskyblue', size=14, line=dict(color='white', width=2)),
-        text=['You'],
-        textposition='top center'
-    ))
-
-    fig.update_layout(
-        xaxis_title='Win Rate',
-        yaxis_title='Avg Win / Avg Loss',
-        xaxis=dict(range=[0.2, 0.8]),
-        yaxis=dict(range=[0, 4]),
-        template='plotly_dark',
-        height=400,
-        width=600,
-        margin=dict(l=40, r=40, t=40, b=40)
-    )
-    return fig
-
-st.markdown("---")
-st.subheader("Trader Profile")
-fig = plot_trader_profile(basic_stats['win_rate'], basic_stats['avg_win_loss_ratio'])
-st.plotly_chart(fig, use_container_width=True)
-
-
 # --- Daily PnL Section ---
 st.markdown("---")
 st.subheader("📅 Daily PnL Overview")
 
-# Group by date
-daily_pnl = df.groupby("date")["profit_loss"].sum()
-
-# Daily stats
-avg_day_pnl = daily_pnl.mean()
-avg_win_day = daily_pnl[daily_pnl > 0].mean()
-avg_loss_day = daily_pnl[daily_pnl < 0].mean()
-days_traded = df["date"].nunique()
-trades_per_day = df.groupby("date").size()
-avg_trades_per_day = trades_per_day.mean() if not trades_per_day.empty else 0
 
 # Layout: Left = Bar Plot, Right = Stats
 left, right = st.columns([3, 1])
@@ -176,9 +125,9 @@ with left:
     # Daily PnL bars
     fig.add_trace(
         go.Bar(
-            x=daily_pnl.index,
-            y=daily_pnl.values,
-            marker_color=['green' if v >= 0 else 'red' for v in daily_pnl.values],
+            x=daily_stats['daily_pnl'].index,
+            y=daily_stats['daily_pnl'].values,
+            marker_color=['green' if v >= 0 else 'red' for v in daily_stats['daily_pnl'].values],
             name='Daily PnL',
         ),
         row=1, col=1
@@ -187,8 +136,8 @@ with left:
     # Number of trades bars
     fig.add_trace(
         go.Bar(
-            x=trades_per_day.index,
-            y=trades_per_day.values,
+            x=daily_stats['trades_per_day'].index,
+            y=daily_stats['trades_per_day'].values,
             marker_color='gray',
             name='Trades per Day',
         ),
@@ -215,25 +164,204 @@ with right:
     st.markdown("<div style='margin-top: 50px;'>", unsafe_allow_html=True)
     st.markdown("<div style='margin-bottom:1rem'></div>", unsafe_allow_html=True)  # Spacer
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{days_traded}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{daily_stats['days_traded']}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Days Traded</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)  # Spacer
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{avg_trades_per_day:.1f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>{daily_stats['avg_trades_per_day']:.1f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Trades Per Day</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)  # Spacer
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${avg_day_pnl:.2f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${daily_stats['avg_day_pnl']:.2f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Day PnL</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${avg_win_day:.2f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${daily_stats['avg_win_day']:.2f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Winning Day</div>", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom:1.5rem'></div>", unsafe_allow_html=True)
 
-    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${avg_loss_day:.2f}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:bold; color:#eee;'>${daily_stats['avg_loss_day']:.2f}</div>", unsafe_allow_html=True)
     st.markdown("<div style='text-align:center; font-size:14px; color:#aaa;'>Average Losing Day</div>", unsafe_allow_html=True)
+
+
+# --- Rolling vs Expanding Metrics ---
+st.markdown("---")
+st.subheader("Rolling vs Expanding Metrics", help="Rolling metrics are calculated over a fixed window (30 trades), while expanding metrics evolve with the whole sample.")
+
+# Layout: Left = Multi-line Plot, Right = Stat Deltas
+left, right = st.columns([3, 1])
+
+df = df.copy().iloc[50:]  # Skip early unstable rows
+metrics = ['win_rate', 'avg_win_loss_ratio', 'avg_mfe', 'avg_mae']
+
+with left:
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=["Win Rate", "Avg Win/Loss Ratio", "MFE ($)", "MAE ($)"]
+    )
+
+    for i, metric in enumerate(metrics, start=1):
+        roll_series = df[f'rolling_{metric}']
+        std_series = roll_series.rolling(window=10).std()  # or another window size
+
+        upper_band = roll_series + std_series
+        lower_band = roll_series - std_series
+
+        # Expanding line
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df[f'expanding_{metric}'],
+                mode='lines',
+                name='Expanding' if i == 1 else None,
+                line=dict(color='gray')
+            ),
+            row=i, col=1
+        )
+
+        # Upper std band (invisible line for fill)
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=upper_band,
+                mode='lines',
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=i, col=1
+        )
+
+        # Lower std band with fill
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=lower_band,
+                mode='lines',
+                fill='tonexty',
+                fillcolor='rgba(255, 165, 0, 0.2)',  # semi-transparent orange
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=i, col=1
+        )
+
+        # Rolling line
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=roll_series,
+                mode='lines',
+                name='Rolling' if i == 1 else None,
+                line=dict(color='orange')
+            ),
+            row=i, col=1
+        )
+
+        # Format Win Rate as percentage
+        if metric == 'win_rate':
+            fig.update_yaxes(tickformat=".0%", row=i, col=1)
+
+    fig.update_layout(
+        height=900,
+        template='plotly_dark',
+        showlegend=False,  # legend removed entirely
+        margin=dict(t=60, b=40, l=40, r=40),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- Right side % changes ---
+with right:
+    spacing_per_metric = ["4rem", "9rem", "9rem", "9rem"]
+    titles = ['Win Rate', 'Avg Win/Loss Ratio', 'MFE', 'MAE']
+
+    for idx, (metric, title) in enumerate(zip(metrics, titles)):
+        exp_val = df[f'expanding_{metric}'].iloc[-1]
+        roll_val = df[f'rolling_{metric}'].iloc[-1]
+
+        if abs(exp_val) > 1e-6:
+            pct_change = (roll_val - exp_val) / abs(exp_val)
+        else:
+            pct_change = 0.0
+
+        # Logic for color
+        if metric == 'avg_mae':  # Higher MAE is worse
+            color = 'lime' if pct_change < 0 else 'tomato'
+        else:
+            color = 'lime' if pct_change >= 0 else 'tomato'
+
+        display_val = f"{pct_change:.2%}"
+
+        st.markdown(f"<div style='margin-top:{spacing_per_metric[idx]};'></div>", unsafe_allow_html=True)
+
+        st.markdown(f"""
+            <div style='text-align:center; font-size:30px; font-weight:bold; color:{color};'>{display_val}</div>
+            <div style='text-align:center; font-size:20px; color:#aaa;'>{title} % Change</div>
+        """, unsafe_allow_html=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # --- Trader Profile ---
+# def plot_trader_profile(win_rate, avg_win_loss_ratio):
+#     x = np.linspace(0.01, 0.99, 300)
+#     y = (1 - x) / x
+
+#     fig = go.Figure()
+
+#     fig.add_trace(go.Scatter(
+#         x=x, y=y,
+#         mode='lines',
+#         name='Breakeven',
+#         line=dict(color='gray', dash='dash')
+#     ))
+
+#     fig.add_trace(go.Scatter(
+#         x=[win_rate],
+#         y=[avg_win_loss_ratio],
+#         mode='markers+text',
+#         name='You',
+#         marker=dict(color='deepskyblue', size=14, line=dict(color='white', width=2)),
+#         text=['You'],
+#         textposition='top center'
+#     ))
+
+#     fig.update_layout(
+#         xaxis_title='Win Rate',
+#         yaxis_title='Avg Win / Avg Loss',
+#         xaxis=dict(range=[0.2, 0.8]),
+#         yaxis=dict(range=[0, 4]),
+#         template='plotly_dark',
+#         height=400,
+#         width=600,
+#         margin=dict(l=40, r=40, t=40, b=40)
+#     )
+#     return fig
+
+# st.markdown("---")
+# st.subheader("Trader Profile")
+# fig = plot_trader_profile(basic_stats['win_rate'], basic_stats['avg_win_loss_ratio'])
+# st.plotly_chart(fig, use_container_width=True)
